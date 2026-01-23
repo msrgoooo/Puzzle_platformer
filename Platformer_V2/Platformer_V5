@@ -1,0 +1,1739 @@
+import random
+import arcade
+import math
+import csv
+import os
+from datetime import datetime
+
+# Константы
+SCREEN_WIDTH = 1200
+SCREEN_HEIGHT = 800
+SCREEN_TITLE = "Платформенные головоломки"
+TILE_SIZE = 64
+GRAVITY = 0.8
+PLAYER_JUMP_SPEED = 15
+PLAYER_SPEED = 5
+
+# Имя файла для сохранения прогресса
+SAVE_FILE = "game_progress.csv"
+
+
+def load_game_progress():
+    """Загружает прогресс игры из CSV файла"""
+    progress = {
+        'unlocked_levels': {1: True, 2: False, 3: False, 4: False, 5: False},
+        'current_level': 1,
+        'total_played_time': 0,
+        'last_save': datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        'total_deaths': 0,
+        'levels_completed': 0
+    }
+
+    try:
+        if os.path.exists(SAVE_FILE):
+            with open(SAVE_FILE, 'r', newline='', encoding='utf-8') as file:
+                reader = csv.DictReader(file)
+                for row in reader:
+                    # Загружаем разблокированные уровни
+                    unlocked_str = row.get('unlocked_levels', '1')
+                    unlocked_list = [int(x.strip()) for x in unlocked_str.split(',') if x.strip().isdigit()]
+
+                    progress['unlocked_levels'] = {
+                        1: 1 in unlocked_list,
+                        2: 2 in unlocked_list,
+                        3: 3 in unlocked_list,
+                        4: 4 in unlocked_list,
+                        5: 5 in unlocked_list
+                    }
+
+                    # Загружаем остальные данные
+                    progress['current_level'] = int(row.get('current_level', 1))
+                    progress['total_played_time'] = float(row.get('total_played_time', 0))
+                    progress['last_save'] = row.get('last_save', datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+                    progress['total_deaths'] = int(row.get('total_deaths', 0))
+                    progress['levels_completed'] = int(row.get('levels_completed', 0))
+
+                    # Если все уровни пройдены, сбрасываем прогресс
+                    if progress['levels_completed'] >= 5:
+                        print("Все уровни пройдены! Сбрасываем прогресс...")
+                        return reset_game_progress()
+
+    except Exception as e:
+        print(f"Ошибка загрузки прогресса: {e}. Используем начальный прогресс.")
+
+    return progress
+
+
+def save_game_progress(progress):
+    """Сохраняет прогресс игры в CSV файл"""
+    try:
+        # Проверяем, не пройдены ли все уровни
+        if progress['levels_completed'] >= 5:
+            print("Все уровни пройдены! Сбрасываем прогресс...")
+            progress = reset_game_progress()
+
+        # Подготавливаем данные для сохранения
+        unlocked_levels = [str(level) for level, unlocked in progress['unlocked_levels'].items() if unlocked]
+        unlocked_str = ','.join(unlocked_levels)
+
+        data = {
+            'unlocked_levels': unlocked_str,
+            'current_level': progress['current_level'],
+            'total_played_time': progress['total_played_time'],
+            'last_save': datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            'total_deaths': progress['total_deaths'],
+            'levels_completed': progress['levels_completed']
+        }
+
+        # Записываем в CSV
+        with open(SAVE_FILE, 'w', newline='', encoding='utf-8') as file:
+            writer = csv.DictWriter(file, fieldnames=data.keys())
+            writer.writeheader()
+            writer.writerow(data)
+
+        print(f"Прогресс сохранен: {data}")
+
+    except Exception as e:
+        print(f"Ошибка сохранения прогресса: {e}")
+
+
+def reset_game_progress():
+    """Сбрасывает прогресс игры до начального состояния"""
+    print("Сброс прогресса игры...")
+    progress = {
+        'unlocked_levels': {1: True, 2: False, 3: False, 4: False, 5: False},
+        'current_level': 1,
+        'total_played_time': 0,
+        'last_save': datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        'total_deaths': 0,
+        'levels_completed': 0
+    }
+
+    # Сохраняем сброшенный прогресс
+    save_game_progress(progress)
+    return progress
+
+
+# Глобальная переменная для прогресса
+game_progress = load_game_progress()
+
+
+def create_color_textures():
+    textures = {}
+
+    # Создаем простые цвета для каждого типа спрайта
+    texture_colors = {
+        'player_idle': arcade.color.BLUE,
+        'player_walk': arcade.color.BLUE,
+        'player_jump': arcade.color.BLUE,
+
+        'grass_mid': arcade.color.GREEN,
+        'grass_left': arcade.color.DARK_GREEN,
+        'grass_right': arcade.color.DARK_GREEN,
+        'grass_center': arcade.color.FOREST_GREEN,
+        'stone_mid': arcade.color.GRAY,
+        'dirt_mid': arcade.color.BROWN,
+        'brick': arcade.color.BROWN,
+
+        'box': arcade.color.SIENNA,
+        'button_red': arcade.color.RED,
+        'button_green': arcade.color.LIME_GREEN,
+        'door_closed': arcade.color.DARK_BROWN,
+        'door_open': arcade.color.LIGHT_BROWN,
+        'enemy': arcade.color.PURPLE,
+        'enemy_move': arcade.color.DARK_VIOLET,
+        'spikes': arcade.color.DARK_RED,
+        'heart': arcade.color.RED,
+        'heart_grey': (100, 100, 100),
+
+        'bush': arcade.color.FOREST_GREEN,
+        'tree': arcade.color.DARK_GREEN,
+        'cloud': arcade.color.WHITE,
+        'rock': arcade.color.DARK_GRAY,
+        'lava': arcade.color.RED_ORANGE,
+    }
+
+    for name, color in texture_colors.items():
+        textures[name] = color
+
+    return textures
+
+
+# Загружаем текстуры глобально - ВСЕГДА используем цветные
+TEXTURES = create_color_textures()
+
+
+class Player(arcade.Sprite):
+    def __init__(self):
+        super().__init__()
+
+        # Устанавливаем стандартные размеры
+        self.width = 40
+        self.height = 50
+        self.center_x = 100
+        self.center_y = 200
+
+        # Используем цвет из TEXTURES
+        player_color = TEXTURES.get('player_idle', arcade.color.BLUE)
+        self.color = player_color
+
+        self.speed, self.jump_speed = PLAYER_SPEED, PLAYER_JUMP_SPEED
+        self.velocity_y = self.change_x = 0
+        self.on_ground = self.on_wall = False
+        self.health, self.max_health = 3, 3
+        self.invincible_timer = 0
+        self.direction = 1
+        self.walk_timer = 0
+        self.walk_animation = False
+
+        # Новый атрибут для коробки, которую несем
+        self.carrying_box = None
+        self.carrying_offset_y = 40
+
+    def update(self):
+        self.velocity_y -= GRAVITY
+        if self.velocity_y < -20:
+            self.velocity_y = -20
+        self.center_y += self.velocity_y
+        self.center_x += self.change_x
+
+        # Простая анимация мигания при движении
+        if abs(self.change_x) > 0 and self.on_ground:
+            self.walk_timer += 1
+            if self.walk_timer >= 8:
+                self.walk_timer = 0
+                self.walk_animation = not self.walk_animation
+                # Меняем цвет при ходьбе
+                if self.walk_animation:
+                    self.color = arcade.color.LIGHT_BLUE
+                else:
+                    self.color = TEXTURES.get('player_idle', arcade.color.BLUE)
+        elif self.on_ground:
+            self.color = TEXTURES.get('player_idle', arcade.color.BLUE)
+        elif self.velocity_y > 0:
+            self.color = arcade.color.SKY_BLUE
+
+        # Если несем коробку, меняем цвет для индикации
+        if self.carrying_box:
+            self.color = arcade.color.CYAN
+
+        if self.invincible_timer > 0:
+            self.invincible_timer -= 1
+            self.alpha = 150 if random.random() > 0.5 else 255
+        else:
+            self.alpha = 255
+
+    def jump(self):
+        if self.on_ground:
+            self.velocity_y = self.jump_speed
+            self.on_ground = False
+            return True
+        return False
+
+    def wall_jump(self, direction):
+        if self.on_wall:
+            self.velocity_y = self.jump_speed * 0.9
+            self.change_x = direction * self.speed * 1.5
+            return True
+        return False
+
+    def take_damage(self):
+        if self.invincible_timer <= 0:
+            self.health -= 1
+            self.invincible_timer = 60
+            self.color = arcade.color.RED
+            return True
+        return False
+
+
+class Box(arcade.Sprite):
+    def __init__(self, x, y):
+        # Создаем цветную коробку
+        super().__init__()
+
+        # Устанавливаем стандартные размеры
+        self.width = 50
+        self.height = 50
+        self.center_x = x
+        self.center_y = y
+
+        box_color = TEXTURES.get('box', arcade.color.SIENNA)
+        self.color = box_color
+
+        self.can_be_pushed = True
+        self.velocity_y = 0
+
+
+class Button(arcade.Sprite):
+    def __init__(self, x, y):
+        # Создаем цветную кнопку
+        super().__init__()
+
+        # Устанавливаем стандартные размеры
+        self.width = 60
+        self.height = 20
+        self.center_x = x
+        self.center_y = y + 40
+
+        self.pressed = False
+        self.linked_door = None
+
+        # Цвета для состояний
+        self.normal_color = TEXTURES.get('button_red', arcade.color.RED)
+        self.pressed_color = TEXTURES.get('button_green', arcade.color.LIME_GREEN)
+        self.color = self.normal_color
+
+    def set_pressed(self, pressed):
+        if pressed != self.pressed:
+            self.pressed = pressed
+            self.color = self.pressed_color if pressed else self.normal_color
+
+
+class Door(arcade.Sprite):
+    def __init__(self, x, y):
+        # Создаем цветную дверь
+        super().__init__()
+
+        # Устанавливаем стандартные размеры
+        self.width = 60
+        self.height = 100
+        self.center_x = x
+        self.center_y = y + 50
+
+        self.opened = False
+
+        # Цвета для состояний
+        self.closed_color = TEXTURES.get('door_closed', arcade.color.DARK_BROWN)
+        self.opened_color = TEXTURES.get('door_open', arcade.color.LIGHT_BROWN)
+        self.color = self.closed_color
+
+    def set_opened(self, opened):
+        if opened != self.opened:
+            self.opened = opened
+            self.color = self.opened_color if opened else self.closed_color
+
+
+class Enemy(arcade.Sprite):
+    def __init__(self, x, y, patrol_range=150):
+        # Создаем цветного врага
+        super().__init__()
+
+        # Устанавливаем стандартные размеры
+        self.width = 40
+        self.height = 40
+        self.center_x = x
+        self.center_y = y + 20
+
+        enemy_color = TEXTURES.get('enemy', arcade.color.PURPLE)
+        self.color = enemy_color
+
+        self.speed, self.direction = 1.5, 1
+        self.start_x = x
+        self.patrol_range = patrol_range
+        self.animation_timer = 0
+        self.normal_color = enemy_color
+        self.alt_color = TEXTURES.get('enemy_move', arcade.color.DARK_VIOLET)
+
+    def update(self):
+        self.center_x += self.speed * self.direction
+
+        # Анимация врага (мигание)
+        self.animation_timer += 1
+        if self.animation_timer >= 30:
+            self.animation_timer = 0
+            if self.color == self.normal_color:
+                self.color = self.alt_color
+            else:
+                self.color = self.normal_color
+
+        if abs(self.center_x - self.start_x) > self.patrol_range:
+            self.direction *= -1
+
+
+class Spikes(arcade.Sprite):
+    def __init__(self, x, y, width=60, height=30):
+        # Создаем цветные шипы
+        super().__init__()
+
+        # Устанавливаем стандартные размеры
+        self.width = width
+        self.height = height
+        self.center_x = x + width / 2
+        self.center_y = y + height / 2
+
+        spikes_color = TEXTURES.get('spikes', arcade.color.DARK_RED)
+        self.color = spikes_color
+
+        self.active = True
+        self.damage_timer = 0
+
+
+class Platform(arcade.Sprite):
+    def __init__(self, x, y, platform_type='grass_mid'):
+        # Цвета для разных типов платформ
+        platform_colors = {
+            'grass_mid': arcade.color.GREEN,
+            'grass_left': arcade.color.DARK_GREEN,
+            'grass_right': arcade.color.DARK_GREEN,
+            'grass_center': arcade.color.FOREST_GREEN,
+            'stone_mid': arcade.color.GRAY,
+            'stone': arcade.color.GRAY,
+            'dirt': arcade.color.BROWN,
+            'dirt_mid': arcade.color.BROWN,
+            'brick': arcade.color.BROWN
+        }
+
+        color = platform_colors.get(platform_type, TEXTURES.get(platform_type, arcade.color.GREEN))
+
+        # Создаем платформу с правильным центрированием
+        super().__init__()
+        self.width = TILE_SIZE
+        self.height = TILE_SIZE
+        self.center_x = x + TILE_SIZE / 2
+        self.center_y = y + TILE_SIZE / 2
+        self.color = color
+
+
+class Decoration(arcade.Sprite):
+    def __init__(self, x, y, decoration_type='bush'):
+        # Размеры для разных типов декораций
+        sizes = {
+            'tree': (50, 80),
+            'cloud': (80, 40),
+            'rock': (30, 30),
+            'bush': (40, 25),
+            'lava': (60, 30)
+        }
+
+        size = sizes.get(decoration_type, (40, 25))
+
+        # Цвета для декораций
+        decoration_colors = {
+            'tree': arcade.color.DARK_GREEN,
+            'cloud': arcade.color.WHITE,
+            'rock': arcade.color.DARK_GRAY,
+            'bush': arcade.color.FOREST_GREEN,
+            'lava': arcade.color.RED_ORANGE
+        }
+
+        color = decoration_colors.get(decoration_type, TEXTURES.get(decoration_type, arcade.color.GREEN))
+
+        # Создаем декорацию с правильным центрированием
+        super().__init__()
+        self.width = size[0]
+        self.height = size[1]
+        self.center_x = x + size[0] / 2
+        self.center_y = y + size[1] / 2
+        self.color = color
+
+        self.decoration_type = decoration_type
+
+
+class Heart(arcade.Sprite):
+    def __init__(self, x, y, active=True):
+        # Создаем цветное сердце
+        super().__init__()
+
+        # Устанавливаем стандартные размеры
+        self.width = 30
+        self.height = 30
+        self.center_x = x
+        self.center_y = y
+
+        if active:
+            heart_color = TEXTURES.get('heart', arcade.color.RED)
+            self.color = heart_color
+        else:
+            heart_color = TEXTURES.get('heart_grey', (100, 100, 100))
+            self.color = heart_color
+
+
+class GameView(arcade.View):
+    def __init__(self, level=1):
+        super().__init__()
+        self.level = level
+        self.start_time = datetime.now()
+        self.game_time = 0
+
+        # Списки спрайтов
+        self.player_list = None
+        self.platform_list = None
+        self.box_list = None
+        self.button_list = None
+        self.door_list = None
+        self.enemy_list = None
+        self.spike_list = None
+        self.heart_list = None
+        self.decoration_list = None
+
+        self.player = None
+        self.left_pressed = self.right_pressed = self.up_pressed = False
+
+        self.camera = arcade.camera.Camera2D()
+        self.gui_camera = arcade.camera.Camera2D()
+
+        self.game_over = False
+        self.level_complete = False
+
+        # Таймер для отображения сообщения об открытой двери
+        self.door_opened_message_timer = 0
+
+        # Флаги для проигрывания звуков
+        self.game_over_sound_played = False
+        self.level_complete_sound_played = False
+
+        # Загружаем звуки
+        self.load_sounds()
+
+        self.setup()
+
+    def load_sounds(self):
+        # Создаем более заметные звуки с разной частотой
+        try:
+            # Звук поражения - низкий и длинный
+            self.game_over_sound = arcade.Sound(":resources:sounds/hit5.wav")
+
+            # Звук победы - высокий и радостный
+            self.level_complete_sound = arcade.Sound(":resources:sounds/coin5.wav")
+
+            # Звук получения урона
+            self.damage_sound = arcade.Sound(":resources:sounds/hurt5.wav")
+
+            # Звук прыжка
+            self.jump_sound = arcade.Sound(":resources:sounds/jump3.wav")
+
+            # Звук взятия/броска коробки
+            self.box_sound = arcade.Sound(":resources:sounds/rockHit2.wav")
+
+            # Звук нажатия кнопки
+            self.button_sound = arcade.Sound(":resources:sounds/upgrade4.wav")
+
+            # Звук открытия двери
+            self.door_sound = arcade.Sound(":resources:sounds/secret4.wav")
+
+        except Exception as e:
+            print(f"Не удалось загрузить стандартные звуки: {e}")
+
+            # Создаем простые звуки вручную если не получилось загрузить
+            try:
+                # Звук поражения
+                self.game_over_sound = self.create_beep_sound(200, 1000)
+                # Звук победы
+                self.level_complete_sound = self.create_beep_sound(800, 500)
+                # Звук получения урона
+                self.damage_sound = self.create_beep_sound(400, 200)
+                # Звук прыжка
+                self.jump_sound = self.create_beep_sound(600, 150)
+                # Звук взятия/броска коробки
+                self.box_sound = self.create_beep_sound(300, 100)
+                # Звук нажатия кнопки
+                self.button_sound = self.create_beep_sound(500, 300)
+                # Звук открытия двери
+                self.door_sound = self.create_beep_sound(700, 400)
+            except:
+                self.game_over_sound = None
+                self.level_complete_sound = None
+                self.damage_sound = None
+                self.jump_sound = None
+                self.box_sound = None
+                self.button_sound = None
+                self.door_sound = None
+
+    def create_beep_sound(self, frequency=440, duration_ms=100):
+        # Создаем короткий звуковой сигнал
+        sample_rate = 44100
+        duration = duration_ms / 1000.0  # в секундах
+        num_samples = int(sample_rate * duration)
+
+        # Создаем массив сэмплов
+        import numpy as np
+        t = np.linspace(0, duration, num_samples, False)
+
+        # Синусоидальная волна
+        wave = np.sin(frequency * 2 * np.pi * t)
+
+        # Амплитудная огибающая для плавного начала и конца
+        envelope = np.ones_like(wave)
+        attack_len = int(0.05 * sample_rate)  # 50ms атака
+        release_len = int(0.1 * sample_rate)  # 100ms релиз
+
+        for i in range(attack_len):
+            envelope[i] = i / attack_len
+
+        for i in range(release_len):
+            envelope[-i - 1] = i / release_len
+
+        wave = wave * envelope
+
+        # Конвертируем в байты
+        wave = (wave * 32767).astype(np.int16).tobytes()
+
+        # Создаем звук
+        sound = arcade.Sound(wave, streaming=False)
+        return sound
+
+    def setup(self):
+        # Инициализируем списки спрайтов
+        self.player_list = arcade.SpriteList()
+        self.platform_list = arcade.SpriteList()
+        self.box_list = arcade.SpriteList()
+        self.button_list = arcade.SpriteList()
+        self.door_list = arcade.SpriteList()
+        self.enemy_list = arcade.SpriteList()
+        self.spike_list = arcade.SpriteList()
+        self.heart_list = arcade.SpriteList()
+        self.decoration_list = arcade.SpriteList()
+
+        # Создаем игрока
+        self.player = Player()
+        self.player_list.append(self.player)
+
+        # Создаем платформы (пол)
+        for x in range(0, 2000, TILE_SIZE):
+            platform_type = 'grass_mid'
+            if x == 0:
+                platform_type = 'grass_left'
+            elif x >= 1900:
+                platform_type = 'grass_right'
+            elif x > 0 and x < 1900:
+                platform_type = 'grass_center' if random.random() > 0.5 else 'grass_mid'
+
+            platform = Platform(x, 0, platform_type)
+            self.platform_list.append(platform)
+
+            # Добавляем кусты случайным образом
+            if random.random() > 0.7 and x > 100:
+                bush = Decoration(x + 20, 40, 'bush')
+                self.decoration_list.append(bush)
+
+        # УРОВЕНЬ 1: Нужно скинуть коробку с высоты на кнопку
+        if self.level == 1:
+            self.player.center_x, self.player.center_y = 100, 150
+
+            # Высокая платформа с коробкой
+            for x in range(400, 550, TILE_SIZE):
+                platform = Platform(x, 200, 'brick')
+                self.platform_list.append(platform)
+
+            # Коробка на высокой платформе
+            box = Box(470, 264)
+            self.box_list.append(box)
+
+            # Лестница к высокой платформе
+            for i in range(3):
+                platform = Platform(200 + i * 64, 64 + i * 64, 'stone')
+                self.platform_list.append(platform)
+
+            # Кнопка
+            button = Button(800, 70)
+            self.button_list.append(button)
+
+            # Дверь
+            door = Door(1500, 100)
+            self.door_list.append(door)
+            button.linked_door = door
+
+            # Несколько врагов на пути
+            enemy1 = Enemy(600, 100, 80)
+            enemy2 = Enemy(1000, 100, 80)
+            self.enemy_list.append(enemy1)
+            self.enemy_list.append(enemy2)
+
+            # Шипы
+            spikes = Spikes(1200, 50, width=120, height=30)
+            spikes.active = False
+            self.spike_list.append(spikes)
+
+            # Кнопка, которая активирует шипы
+            trap_button = Button(1300, 150)
+            trap_button.linked_spikes = spikes
+            self.button_list.append(trap_button)
+
+            # Лава
+            lava = Decoration(1400, 50, 'lava')
+            self.decoration_list.append(lava)
+
+            # Добавляем деревья для декора
+            for x in [300, 700, 1100]:
+                tree = Decoration(x, 64, 'tree')
+                self.decoration_list.append(tree)
+
+        # УРОВЕНЬ 2: Лабиринт с движущимися врагами и шипами
+        elif self.level == 2:
+            self.player.center_x, self.player.center_y = 100, 150
+
+            # Создаем стены-лабиринт
+            # Левая стена
+            for y in range(64, 400, 64):
+                platform = Platform(0, y, 'stone')
+                self.platform_list.append(platform)
+
+            # Правая стена
+            for y in range(64, 400, 64):
+                platform = Platform(1800, y, 'stone')
+                self.platform_list.append(platform)
+
+            # Горизонтальные платформы в лабиринте
+            maze_platforms = [
+                (300, 150), (500, 150), (700, 150),
+                (400, 250), (600, 250),
+                (300, 350), (500, 350), (700, 350),
+                (900, 200), (1100, 200),
+                (1000, 300),
+            ]
+
+            for i, pos in enumerate(maze_platforms):
+                platform_type = 'stone' if i % 2 == 0 else 'brick'
+                platform = Platform(pos[0], pos[1], platform_type)
+                self.platform_list.append(platform)
+
+            # Закрываем низ
+            for x in range(0, 1700, TILE_SIZE):
+                for y in range(0, 128, 64):
+                    platform = Platform(x, y, 'stone')
+                    self.platform_list.append(platform)
+
+            # Коробка в начале лабиринта
+            box = Box(200, 214)
+            self.box_list.append(box)
+
+            # Кнопка наверху блока
+            button = Button(900, 220)
+            self.button_list.append(button)
+
+            # Дверь
+            door = Door(1850, 214)
+            self.door_list.append(door)
+            button.linked_door = door
+
+            # Несколько врагов
+            enemy_positions = [(450, 214), (650, 314), (550, 414)]
+
+            for pos in enemy_positions:
+                enemy = Enemy(pos[0], pos[1], 100)
+                self.enemy_list.append(enemy)
+
+            # Шипы
+            spike_positions = [
+                (850, 100), (950, 100), (1050, 100),
+                (1450, 100), (1550, 100), (1650, 100)
+            ]
+
+            for pos in spike_positions:
+                spikes = Spikes(pos[0], pos[1], width=60, height=30)
+                self.spike_list.append(spikes)
+
+            # Лава
+            lava_positions = [(1150, 100), (1250, 100), (1350, 100)]
+            for pos in lava_positions:
+                lava = Decoration(pos[0], pos[1], 'lava')
+                self.decoration_list.append(lava)
+
+            # Добавляем блоки чтобы нельзя было пройти сквозь стены
+            block_positions = [
+                (250, 150), (550, 150), (750, 150),
+                (450, 250), (650, 250),
+                (350, 350), (550, 350), (750, 350),
+            ]
+
+            for pos in block_positions:
+                platform = Platform(pos[0], pos[1], 'brick')
+                self.platform_list.append(platform)
+
+        # УРОВЕНЬ 3: Паркур с прыжками по платформам
+        elif self.level == 3:
+            self.player.center_x, self.player.center_y = 100, 150
+
+            # Платформы для паркура
+            parkour_platforms = [
+                (200, 150, 'stone'), (400, 200, 'stone'), (600, 250, 'stone'),
+                (800, 300, 'stone'), (1000, 350, 'stone'), (1200, 300, 'stone'),
+                (1400, 250, 'stone'), (1600, 200, 'stone'), (1800, 150, 'stone'),
+            ]
+
+            for x, y, ptype in parkour_platforms:
+                platform = Platform(x, y, ptype)
+                self.platform_list.append(platform)
+
+            # Коробка
+            box = Box(250, 214)
+            self.box_list.append(box)
+
+            # Кнопка (опущена)
+            button = Button(1600, 240)
+            self.button_list.append(button)
+
+            # Дверь
+            door = Door(1900, 214)
+            self.door_list.append(door)
+            button.linked_door = door
+
+            # Враги
+            for i in range(3):
+                x = 500 + i * 250
+                enemy = Enemy(x, 264 if i % 2 == 0 else 164, 100)
+                enemy.speed = 2.0
+                self.enemy_list.append(enemy)
+
+        # УРОВЕНЬ 4: Вертикальный уровень
+        elif self.level == 4:
+            self.player.center_x, self.player.center_y = 100, 150
+
+            # Высокие колонны
+            for x in [200, 600, 1000, 1400, 1800]:
+                for y in range(0, 400, 64):
+                    platform = Platform(x, y, 'stone' if x < 1000 else 'brick')
+                    self.platform_list.append(platform)
+
+            # Горизонтальные перемычки
+            bridge_positions = [
+                (200, 200), (600, 200), (1000, 200), (1400, 200),
+                (200, 350), (600, 350), (1000, 350), (1400, 350),
+            ]
+
+            for x, y in bridge_positions:
+                for dx in range(0, 350, 64):
+                    platform = Platform(x + dx, y, 'grass_center')
+                    self.platform_list.append(platform)
+
+            # Коробка
+            box = Box(300, 414)
+            self.box_list.append(box)
+
+            # Кнопка
+            button = Button(1200, 390)
+            self.button_list.append(button)
+
+            # Дверь
+            door = Door(1900, 414)
+            self.door_list.append(door)
+            button.linked_door = door
+
+        # УРОВЕНЬ 5: Финальный
+        elif self.level == 5:
+            self.player.center_x, self.player.center_y = 100, 150
+
+            # Пирамида из платформ
+            pyramid_height = 4
+            for level in range(pyramid_height):
+                start_x = 600 - level * 32
+                for block in range(level * 2 + 1):
+                    x = start_x + block * 64
+                    y = 100 + level * 64
+                    platform = Platform(x, y, 'grass_center' if level % 2 == 0 else 'dirt')
+                    self.platform_list.append(platform)
+
+            # Коробка
+            box = Box(600, 100 + (pyramid_height - 1) * 64 + 32)
+            self.box_list.append(box)
+
+            # Кнопка
+            button = Button(750, 180)
+            self.button_list.append(button)
+
+            # Дверь
+            door = Door(1400, 150)
+            self.door_list.append(door)
+            button.linked_door = door
+
+        # Обновляем сердца
+        self.update_hearts()
+
+        # Настраиваем камеры
+        self.camera.position = (self.player.center_x, self.player.center_y)
+        self.gui_camera.position = (SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2)
+
+        # Сбрасываем флаги звуков
+        self.game_over_sound_played = False
+        self.level_complete_sound_played = False
+
+    def update_hearts(self):
+        self.heart_list.clear()
+        for i in range(self.player.max_health):
+            active = i < self.player.health
+            heart = Heart(40 + i * 40, SCREEN_HEIGHT - 40, active)
+            self.heart_list.append(heart)
+
+    def on_draw(self):
+        self.clear()
+
+        # Фоновый цвет для неба
+        level_colors = [
+            arcade.color.SKY_BLUE,
+            arcade.color.LIGHT_BLUE,
+            arcade.color.LAVENDER,
+            arcade.color.DARK_BLUE,
+            arcade.color.DARK_SLATE_GRAY
+        ]
+        arcade.set_background_color(level_colors[min(self.level - 1, 4)])
+
+        if not self.game_over and not self.level_complete:
+            # Активируем игровую камеру
+            self.camera.use()
+
+            # Рисуем градиентный фон
+            arcade.draw_lrbt_rectangle_filled(0, 2500, 0, 600, level_colors[min(self.level - 1, 4)])
+
+            # Рисуем солнце/луну
+            sun_colors = [
+                arcade.color.YELLOW,
+                arcade.color.ORANGE,
+                arcade.color.LIGHT_GRAY,
+                arcade.color.MOONSTONE_BLUE,
+                arcade.color.DARK_GRAY
+            ]
+            arcade.draw_circle_filled(200, 550, 50, sun_colors[min(self.level - 1, 4)])
+
+            # Рисуем декорации
+            self.decoration_list.draw()
+
+            # Рисуем все спрайты
+            self.platform_list.draw()
+            self.box_list.draw()
+            self.button_list.draw()
+            self.door_list.draw()
+            self.enemy_list.draw()
+            self.spike_list.draw()
+            self.player_list.draw()
+
+            # Активируем GUI камеру
+            self.gui_camera.use()
+
+            # Рисуем UI
+            self.heart_list.draw()
+
+            # Номер уровня
+            arcade.draw_text(f"Уровень: {self.level}", SCREEN_WIDTH - 200, SCREEN_HEIGHT - 40,
+                             arcade.color.BLACK, 18, bold=True)
+
+            # Статистика
+            arcade.draw_text(f"Смертей: {game_progress['total_deaths']}", SCREEN_WIDTH - 200, SCREEN_HEIGHT - 70,
+                             arcade.color.BLACK, 14, bold=True)
+            arcade.draw_text(f"Пройдено: {game_progress['levels_completed']}/5", SCREEN_WIDTH - 200,
+                             SCREEN_HEIGHT - 100,
+                             arcade.color.BLACK, 14, bold=True)
+
+            # Подсказки
+            if self.player.carrying_box:
+                arcade.draw_text("E - бросить коробку", 50, SCREEN_HEIGHT - 100,
+                                 arcade.color.BLACK, 16, bold=True)
+            else:
+                arcade.draw_text("E - взять коробку (когда рядом)", 50, SCREEN_HEIGHT - 100,
+                                 arcade.color.BLACK, 16, bold=True)
+
+            # Подсказка уровня
+            hints = [
+                "Сбросьте коробку с высоты на кнопку!",
+                "Протащите коробку через лабиринт!",
+                "Пронесите коробку через паркур!",
+                "Поднимите коробку наверх!",
+                "Нажмите кнопку коробкой!"
+            ]
+            hint = hints[min(self.level - 1, 4)]
+
+            arcade.draw_text(hint, 50, SCREEN_HEIGHT - 130,
+                             arcade.color.BLACK, 14, bold=True)
+
+            # Подсказка управления
+            arcade.draw_text("Управление: A/D-движение, SPACE-прыжок, E-взять/бросить",
+                             50, SCREEN_HEIGHT - 160,
+                             arcade.color.BLACK, 12, bold=True)
+
+            # Проверяем, открыта ли какая-либо дверь
+            door_opened = False
+            for door in self.door_list:
+                if door.opened:
+                    door_opened = True
+                    break
+
+            # Если дверь открыта, показываем сообщение
+            if door_opened and self.door_opened_message_timer > 0:
+                # Рисуем черную обводку
+                arcade.draw_text("ДВЕРЬ ОТКРЫТА", SCREEN_WIDTH // 2 - 1, SCREEN_HEIGHT - 100,
+                                 arcade.color.BLACK, 24, anchor_x="center", bold=True)
+                arcade.draw_text("ДВЕРЬ ОТКРЫТА", SCREEN_WIDTH // 2 + 1, SCREEN_HEIGHT - 100,
+                                 arcade.color.BLACK, 24, anchor_x="center", bold=True)
+                arcade.draw_text("ДВЕРЬ ОТКРЫТА", SCREEN_WIDTH // 2, SCREEN_HEIGHT - 100 - 1,
+                                 arcade.color.BLACK, 24, anchor_x="center", bold=True)
+                arcade.draw_text("ДВЕРЬ ОТКРЫТА", SCREEN_WIDTH // 2, SCREEN_HEIGHT - 100 + 1,
+                                 arcade.color.BLACK, 24, anchor_x="center", bold=True)
+
+                # Рисуем основной зеленый текст поверх обводки
+                arcade.draw_text("ДВЕРЬ ОТКРЫТА", SCREEN_WIDTH // 2, SCREEN_HEIGHT - 100,
+                                 arcade.color.GREEN, 24, anchor_x="center", bold=True)
+
+        # Рисуем экран смерти или победы
+        if self.game_over:
+            arcade.draw_lrbt_rectangle_filled(0, SCREEN_WIDTH, 0, SCREEN_HEIGHT, (0, 0, 0, 200))
+            arcade.draw_text("К СОЖАЛЕНИЮ, ВЫ ПОГИБЛИ", SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2 + 50,
+                             arcade.color.RED, 36, anchor_x="center", bold=True)
+            arcade.draw_text("R - РЕСТАРТ УРОВНЯ", SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2,
+                             arcade.color.WHITE, 24, anchor_x="center", bold=True)
+            arcade.draw_text("ESC - ВЫХОД В МЕНЮ", SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2 - 50,
+                             arcade.color.WHITE, 24, anchor_x="center", bold=True)
+
+        elif self.level_complete:
+            arcade.draw_lrbt_rectangle_filled(0, SCREEN_WIDTH, 0, SCREEN_HEIGHT, (0, 100, 0, 200))
+            arcade.draw_text(f"УРОВЕНЬ {self.level} ПРОЙДЕН!", SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2 + 50,
+                             arcade.color.GOLD, 36, anchor_x="center", bold=True)
+
+            # Показываем кнопку следующего уровня только если уровень разблокирован
+            if self.level < 5 and game_progress['unlocked_levels'].get(self.level + 1, False):
+                arcade.draw_text("SPACE - СЛЕДУЮЩИЙ УРОВЕНЬ", SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2,
+                                 arcade.color.WHITE, 24, anchor_x="center", bold=True)
+            elif self.level == 5:
+                arcade.draw_text("ПОЗДРАВЛЯЕМ! ИГРА ПРОЙДЕНА!", SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2,
+                                 arcade.color.GOLD, 28, anchor_x="center", bold=True)
+                arcade.draw_text("Игра будет перезапущена", SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2 - 30,
+                                 arcade.color.WHITE, 20, anchor_x="center", bold=True)
+
+            arcade.draw_text("ESC - ВЫХОД В МЕНЮ", SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2 - 80,
+                             arcade.color.WHITE, 24, anchor_x="center", bold=True)
+
+    def on_update(self, delta_time):
+        # Обновляем игровое время
+        self.game_time += delta_time
+
+        if self.game_over:
+            # Проигрываем звук поражения один раз
+            if not self.game_over_sound_played and self.game_over_sound:
+                arcade.play_sound(self.game_over_sound, volume=1.0)
+                self.game_over_sound_played = True
+            return
+
+        if self.level_complete:
+            # Проигрываем звук победы один раз
+            if not self.level_complete_sound_played and self.level_complete_sound:
+                arcade.play_sound(self.level_complete_sound, volume=1.0)
+                self.level_complete_sound_played = True
+            return
+
+        # Обновляем таймер сообщения об открытой двери
+        if self.door_opened_message_timer > 0:
+            self.door_opened_message_timer -= 1
+
+        # Движение игрока
+        self.player.change_x = 0
+        if self.left_pressed and not self.right_pressed:
+            self.player.change_x = -self.player.speed
+        elif self.right_pressed and not self.left_pressed:
+            self.player.change_x = self.player.speed
+
+        self.player.update()
+
+        # Проверка столкновений с платформами для игрока
+        self.player.on_ground = self.player.on_wall = False
+        hit_list = arcade.check_for_collision_with_list(self.player, self.platform_list)
+        for platform in hit_list:
+            if (self.player.center_y > platform.center_y + 5 and
+                    self.player.velocity_y <= 0 and
+                    abs(self.player.center_x - platform.center_x) < platform.width / 2 + self.player.width / 2 - 5):
+
+                self.player.on_ground = True
+                self.player.center_y = platform.center_y + platform.height / 2 + self.player.height / 2
+                self.player.velocity_y = 0
+            elif abs(self.player.center_x - platform.center_x) < platform.width / 2 + self.player.width / 2 - 10:
+                self.player.on_wall = True
+
+        # Если игрок несет коробку, двигаем ее вместе с ним
+        if self.player.carrying_box:
+            box = self.player.carrying_box
+            box.center_x = self.player.center_x
+            box.center_y = self.player.center_y + self.player.carrying_offset_y
+
+            # Проверяем, не ударилась ли коробка о потолок или препятствие
+            box_hit = arcade.check_for_collision_with_list(box, self.platform_list)
+            if box_hit:
+                self.player.carrying_box = None
+                box.center_y -= 10
+
+        # ФИЗИКА ДЛЯ КОРОБОК
+        for box in self.box_list:
+            if self.player.carrying_box == box:
+                continue
+
+            old_y = box.center_y
+            GRAVITY_BOX = GRAVITY * 5
+            box_on_ground = False
+
+            box.center_y -= GRAVITY_BOX
+
+            box_hit_platforms = arcade.check_for_collision_with_list(box, self.platform_list)
+
+            other_boxes = arcade.SpriteList()
+            for other_box in self.box_list:
+                if other_box != box and (not self.player.carrying_box or self.player.carrying_box != other_box):
+                    other_boxes.append(other_box)
+
+            box_hit_boxes = arcade.check_for_collision_with_list(box, other_boxes)
+
+            if box_hit_platforms or box_hit_boxes:
+                box.center_y = old_y
+                box_on_ground = True
+
+                if box_hit_platforms:
+                    highest_platform = None
+                    for platform in box_hit_platforms:
+                        if platform.center_y < box.center_y:
+                            if highest_platform is None or platform.center_y > highest_platform.center_y:
+                                highest_platform = platform
+
+                    if highest_platform:
+                        box.center_y = highest_platform.center_y + highest_platform.height / 2 + box.height / 2
+
+                if box_hit_boxes:
+                    for other_box in box_hit_boxes:
+                        if other_box.center_y < box.center_y:
+                            box.center_y = other_box.center_y + other_box.height / 2 + box.height / 2
+                            break
+            else:
+                box_on_ground = False
+
+            # Движение коробок от толкания игроком
+            if arcade.check_for_collision(self.player, box) and box.can_be_pushed and box_on_ground:
+                dx = self.player.center_x - box.center_x
+
+                if dx < 0:
+                    if self.right_pressed:
+                        old_x = box.center_x
+                        box.center_x += 5
+
+                        hit_after = arcade.check_for_collision_with_list(box, self.platform_list)
+
+                        if not hit_after:
+                            self.player.center_x = box.center_x - box.width - 5
+                        else:
+                            box.center_x = old_x
+
+                else:
+                    if self.left_pressed:
+                        old_x = box.center_x
+                        box.center_x -= 5
+
+                        hit_after = arcade.check_for_collision_with_list(box, self.platform_list)
+
+                        if not hit_after:
+                            self.player.center_x = box.center_x + box.width + 5
+                        else:
+                            box.center_x = old_x
+
+        # Кнопки
+        for button in self.button_list:
+            pressed = False
+
+            for box in self.box_list:
+                if arcade.check_for_collision(button, box):
+                    pressed = True
+                    break
+
+            if not pressed and arcade.check_for_collision(self.player, button):
+                pressed = True
+
+            if pressed != button.pressed:
+                button.set_pressed(pressed)
+                if button.linked_door:
+                    button.linked_door.set_opened(pressed)
+                    if pressed:
+                        self.door_opened_message_timer = 120
+                        # Проигрываем звук нажатия кнопки
+                        if self.button_sound:
+                            arcade.play_sound(self.button_sound, volume=1.0)
+                if hasattr(button, 'linked_spikes'):
+                    button.linked_spikes.active = pressed
+
+        # Враги
+        for enemy in self.enemy_list:
+            enemy.update()
+            if arcade.check_for_collision(self.player, enemy) and self.player.take_damage():
+                self.update_hearts()
+                # Проигрываем звук получения урона
+                if self.damage_sound:
+                    arcade.play_sound(self.damage_sound, volume=1.0)
+
+        # Шипы
+        for spike in self.spike_list:
+            if spike.active and arcade.check_for_collision(self.player, spike) and self.player.take_damage():
+                self.update_hearts()
+                # Проигрываем звук получения урона
+                if self.damage_sound:
+                    arcade.play_sound(self.damage_sound, volume=1.0)
+
+        # Лава
+        for decoration in self.decoration_list:
+            if decoration.decoration_type == 'lava':
+                if arcade.check_for_collision(self.player, decoration) and self.player.take_damage():
+                    self.update_hearts()
+                    self.player.center_y += 20
+                    self.player.velocity_y = 10
+                    # Проигрываем звук получения урона
+                    if self.damage_sound:
+                        arcade.play_sound(self.damage_sound, volume=1.0)
+
+        # Двери
+        for door in self.door_list:
+            if door.opened and arcade.check_for_collision(self.player, door):
+                self.level_complete = True
+
+                # Обновляем прогресс
+                game_progress['current_level'] = self.level
+                game_progress['levels_completed'] += 1
+
+                # Разблокируем следующий уровень
+                if self.level < 5:
+                    game_progress['unlocked_levels'][self.level + 1] = True
+                    game_progress['current_level'] = self.level + 1
+
+                # Сохраняем прогресс
+                game_progress['total_played_time'] += self.game_time
+                save_game_progress(game_progress)
+
+                # Проигрываем звук открытия двери
+                if self.door_sound:
+                    arcade.play_sound(self.door_sound, volume=1.0)
+
+        # Смерть от падения или потери здоровья
+        if self.player.health <= 0 or self.player.center_y < -100:
+            self.game_over = True
+            # Увеличиваем счетчик смертей
+            game_progress['total_deaths'] += 1
+            # Сохраняем прогресс
+            game_progress['total_played_time'] += self.game_time
+            save_game_progress(game_progress)
+
+        # Обновляем камеру
+        target_x = self.player.center_x
+        target_y = self.player.center_y
+        current_x, current_y = self.camera.position
+        new_x = current_x + (target_x - current_x) * 0.1
+        new_y = current_y + (target_y - current_y) * 0.1
+        new_x = max(SCREEN_WIDTH // 2, min(new_x, 2000 - SCREEN_WIDTH // 2))
+        new_y = max(SCREEN_HEIGHT // 2, min(new_y, 600 - SCREEN_HEIGHT // 2))
+        self.camera.position = (new_x, new_y)
+
+    def on_key_press(self, key, modifiers):
+        global game_progress  # Объявляем глобальной переменную прогресса
+
+        if self.game_over:
+            if key == arcade.key.R:
+                self.setup()
+                self.game_over = False
+                self.game_over_sound_played = False
+                self.game_time = 0
+                self.start_time = datetime.now()
+            elif key == arcade.key.ESCAPE:
+                # Сохраняем прогресс перед выходом в меню
+                game_progress['total_played_time'] += self.game_time
+                save_game_progress(game_progress)
+                self.window.show_view(MainMenu())
+            return
+
+        if self.level_complete:
+            if key == arcade.key.SPACE and self.level < 5 and game_progress['unlocked_levels'].get(self.level + 1,
+                                                                                                   False):
+                # Сохраняем прогресс перед переходом на следующий уровень
+                game_progress['total_played_time'] += self.game_time
+                save_game_progress(game_progress)
+                self.window.show_view(GameView(self.level + 1))
+            elif key == arcade.key.ESCAPE:
+                # Сохраняем прогресс перед выходом в меню
+                game_progress['total_played_time'] += self.game_time
+                save_game_progress(game_progress)
+                self.window.show_view(MainMenu())
+            return
+
+        if key == arcade.key.A or key == arcade.key.LEFT:
+            self.left_pressed = True
+        elif key == arcade.key.D or key == arcade.key.RIGHT:
+            self.right_pressed = True
+        elif key == arcade.key.W or key == arcade.key.UP:
+            self.up_pressed = True
+        elif key == arcade.key.SPACE:
+            if self.player.on_wall:
+                direction = -1 if self.left_pressed else 1
+                self.player.wall_jump(direction)
+            else:
+                if self.player.jump():
+                    # Проигрываем звук прыжка только при успешном прыжке
+                    if self.jump_sound:
+                        arcade.play_sound(self.jump_sound, volume=1.0)
+        elif key == arcade.key.E:
+            if self.player.carrying_box:
+                self.player.carrying_box = None
+                self.player.color = TEXTURES.get('player_idle', arcade.color.BLUE)
+                # Проигрываем звук броска коробки
+                if self.box_sound:
+                    arcade.play_sound(self.box_sound, volume=1.0)
+            else:
+                closest_box = None
+                closest_distance = 50
+
+                for box in self.box_list:
+                    distance = abs(self.player.center_x - box.center_x)
+                    if distance < closest_distance and abs(self.player.center_y - box.center_y) < 60:
+                        closest_box = box
+                        closest_distance = distance
+
+                if closest_box:
+                    self.player.carrying_box = closest_box
+                    # Проигрываем звук взятия коробки
+                    if self.box_sound:
+                        arcade.play_sound(self.box_sound, volume=1.0)
+        elif key == arcade.key.R:
+            # Сохраняем прогресс перед рестартом
+            game_progress['total_played_time'] += self.game_time
+            save_game_progress(game_progress)
+            self.setup()
+            self.game_time = 0
+            self.start_time = datetime.now()
+        elif key == arcade.key.ESCAPE:
+            # Сохраняем прогресс перед выходом в меню
+            game_progress['total_played_time'] += self.game_time
+            save_game_progress(game_progress)
+            self.window.show_view(MainMenu())
+
+    def on_key_release(self, key, modifiers):
+        if key == arcade.key.A or key == arcade.key.LEFT:
+            self.left_pressed = False
+        elif key == arcade.key.D or key == arcade.key.RIGHT:
+            self.right_pressed = False
+        elif key == arcade.key.W or key == arcade.key.UP:
+            self.up_pressed = False
+
+
+class MainMenu(arcade.View):
+    def __init__(self):
+        super().__init__()
+        self.selected = 0
+        self.options = ["Продолжить игру", "Новая игра", "Выбор уровня", "Статистика", "Выход"]
+        self.snowflakes = []
+        self.snow_timer = 0
+
+        # Загружаем звук для меню
+        self.menu_select_sound = None
+        self.menu_confirm_sound = None
+        try:
+            self.menu_select_sound = arcade.Sound(":resources:sounds/upgrade1.wav")
+            self.menu_confirm_sound = arcade.Sound(":resources:sounds/upgrade4.wav")
+        except:
+            try:
+                self.menu_select_sound = self.create_beep_sound(600, 50)
+                self.menu_confirm_sound = self.create_beep_sound(800, 100)
+            except:
+                pass
+
+        # Создаем снежинки
+        for _ in range(100):
+            self.snowflakes.append({
+                'x': random.randint(0, SCREEN_WIDTH),
+                'y': random.randint(0, SCREEN_HEIGHT),
+                'size': random.randint(1, 3),
+                'speed': random.uniform(0.2, 0.6)
+            })
+
+    def create_beep_sound(self, frequency=440, duration_ms=100):
+        try:
+            import numpy as np
+
+            sample_rate = 44100
+            duration = duration_ms / 1000.0
+            num_samples = int(sample_rate * duration)
+
+            t = np.linspace(0, duration, num_samples, False)
+            wave = np.sin(frequency * 2 * np.pi * t)
+
+            envelope = np.ones_like(wave)
+            attack_len = int(0.05 * sample_rate)
+            release_len = int(0.1 * sample_rate)
+
+            for i in range(attack_len):
+                envelope[i] = i / attack_len
+
+            for i in range(release_len):
+                envelope[-i - 1] = i / release_len
+
+            wave = wave * envelope
+            wave = (wave * 32767).astype(np.int16).tobytes()
+
+            sound = arcade.Sound(wave, streaming=False)
+            return sound
+        except:
+            return None
+
+    def on_draw(self):
+        self.clear()
+
+        arcade.draw_lrbt_rectangle_filled(0, SCREEN_WIDTH, 0, SCREEN_HEIGHT, arcade.color.DARK_BLUE)
+
+        for flake in self.snowflakes:
+            arcade.draw_circle_filled(flake['x'], flake['y'], flake['size'], arcade.color.WHITE)
+
+        title_text = "ПЛАТФОРМЕННЫЕ ГОЛОВОЛОМКИ"
+        title_x = SCREEN_WIDTH // 2
+        title_y = SCREEN_HEIGHT * 0.75
+
+        arcade.draw_text(title_text, title_x, title_y,
+                         arcade.color.GOLD, 42, anchor_x="center", anchor_y="center",
+                         font_name="Arial", bold=True)
+
+        # Показываем текущий прогресс
+        current_level = game_progress['current_level']
+        unlocked_count = sum(1 for level, unlocked in game_progress['unlocked_levels'].items() if unlocked)
+        arcade.draw_text(f"Текущий уровень: {current_level}", title_x, title_y - 50,
+                         arcade.color.LIGHT_GREEN, 20, anchor_x="center", anchor_y="center",
+                         font_name="Arial", bold=True)
+        arcade.draw_text(f"Прогресс: {unlocked_count}/5 уровней", title_x, title_y - 80,
+                         arcade.color.LIGHT_BLUE, 18, anchor_x="center", anchor_y="center",
+                         font_name="Arial", bold=True)
+
+        menu_start_y = SCREEN_HEIGHT * 0.45
+
+        for i, option in enumerate(self.options):
+            color = arcade.color.BLACK if i == self.selected else arcade.color.WHITE
+
+            item_x = SCREEN_WIDTH // 2
+            item_y = menu_start_y - i * 60
+
+            arcade.draw_text(option, item_x, item_y,
+                             color, 30,
+                             anchor_x="center", anchor_y="center",
+                             font_name="Arial", bold=True)
+
+        hint_text = "W/S-выбор, ENTER-подтвердить, ESC-выход"
+        hint_x = SCREEN_WIDTH // 2
+        hint_y = 60
+
+        arcade.draw_text(hint_text, hint_x, hint_y,
+                         arcade.color.LIGHT_GRAY, 18,
+                         anchor_x="center", anchor_y="center",
+                         font_name="Arial", bold=True)
+
+    def on_update(self, delta_time):
+        self.snow_timer += delta_time
+        if self.snow_timer > 0.05:
+            self.snow_timer = 0
+            for flake in self.snowflakes:
+                flake['y'] -= flake['speed']
+                if flake['y'] < 0:
+                    flake['y'] = SCREEN_HEIGHT
+                    flake['x'] = random.randint(0, SCREEN_WIDTH)
+
+    def on_key_press(self, key, modifiers):
+        global game_progress  # Объявляем глобальной переменную прогресса
+
+        old_selected = self.selected
+
+        if key == arcade.key.W:
+            self.selected = (self.selected - 1) % len(self.options)
+            # Звук выбора пункта
+            if self.selected != old_selected and self.menu_select_sound:
+                arcade.play_sound(self.menu_select_sound, volume=1.0)
+        elif key == arcade.key.S:
+            self.selected = (self.selected + 1) % len(self.options)
+            # Звук выбора пункта
+            if self.selected != old_selected and self.menu_select_sound:
+                arcade.play_sound(self.menu_select_sound, volume=1.0)
+        elif key == arcade.key.ENTER or key == arcade.key.SPACE:
+            # Звук подтверждения
+            if self.menu_confirm_sound:
+                arcade.play_sound(self.menu_confirm_sound, volume=1.0)
+
+            if self.selected == 0:  # Продолжить игру
+                current_level = game_progress['current_level']
+                self.window.show_view(GameView(current_level))
+            elif self.selected == 1:  # Новая игра
+                # Сбрасываем прогресс
+                game_progress = reset_game_progress()
+                self.window.show_view(GameView(1))
+            elif self.selected == 2:  # Выбор уровня
+                self.window.show_view(LevelSelectView())
+            elif self.selected == 3:  # Статистика
+                self.window.show_view(StatisticsView())
+            elif self.selected == 4:  # Выход
+                arcade.exit()
+        elif key == arcade.key.ESCAPE:
+            arcade.exit()
+
+
+class StatisticsView(arcade.View):
+    def __init__(self):
+        super().__init__()
+        self.snowflakes = []
+
+        for _ in range(50):
+            self.snowflakes.append({
+                'x': random.randint(0, SCREEN_WIDTH),
+                'y': random.randint(0, SCREEN_HEIGHT),
+                'size': random.randint(1, 3),
+                'speed': random.uniform(0.2, 0.6)
+            })
+
+    def on_draw(self):
+        self.clear()
+
+        arcade.draw_lrbt_rectangle_filled(0, SCREEN_WIDTH, 0, SCREEN_HEIGHT, arcade.color.DARK_BLUE)
+
+        for flake in self.snowflakes:
+            arcade.draw_circle_filled(flake['x'], flake['y'], flake['size'], arcade.color.WHITE)
+
+        title_x = SCREEN_WIDTH // 2
+        title_y = SCREEN_HEIGHT * 0.85
+
+        arcade.draw_text("СТАТИСТИКА ИГРЫ", title_x, title_y,
+                         arcade.color.GOLD, 42, anchor_x="center", anchor_y="center",
+                         font_name="Arial", bold=True)
+
+        # Отображаем статистику
+        stats_y = SCREEN_HEIGHT * 0.65
+        stats = [
+            ("Текущий уровень:", f"{game_progress['current_level']}/5"),
+            ("Разблокировано уровней:",
+             f"{sum(1 for level, unlocked in game_progress['unlocked_levels'].items() if unlocked)}/5"),
+            ("Всего пройдено уровней:", f"{game_progress['levels_completed']}"),
+            ("Всего смертей:", f"{game_progress['total_deaths']}"),
+            ("Общее время игры:", f"{game_progress['total_played_time']:.1f} сек"),
+            ("Последнее сохранение:", game_progress['last_save']),
+        ]
+
+        for i, (label, value) in enumerate(stats):
+            y_pos = stats_y - i * 50
+            arcade.draw_text(label, title_x - 200, y_pos,
+                             arcade.color.WHITE, 22, anchor_x="right", anchor_y="center",
+                             font_name="Arial", bold=True)
+            arcade.draw_text(value, title_x - 180, y_pos,
+                             arcade.color.LIGHT_GREEN, 22, anchor_x="left", anchor_y="center",
+                             font_name="Arial", bold=True)
+
+        # Разблокированные уровни
+        unlocked_y = SCREEN_HEIGHT * 0.3
+        arcade.draw_text("РАЗБЛОКИРОВАННЫЕ УРОВНИ:", title_x, unlocked_y,
+                         arcade.color.WHITE, 26, anchor_x="center", anchor_y="center",
+                         font_name="Arial", bold=True)
+
+        levels_y = unlocked_y - 50
+        for i in range(1, 6):
+            level_x = title_x + (i - 3) * 100
+            if game_progress['unlocked_levels'].get(i, False):
+                color = arcade.color.GREEN
+                text = f"Уровень {i} ✓"
+            else:
+                color = arcade.color.RED
+                text = f"Уровень {i} ✗"
+
+            arcade.draw_text(text, level_x, levels_y,
+                             color, 20, anchor_x="center", anchor_y="center",
+                             font_name="Arial", bold=True)
+
+        # Подсказка
+        hint_y = 80
+        arcade.draw_text("ESC - вернуться в меню", title_x, hint_y,
+                         arcade.color.LIGHT_GRAY, 20, anchor_x="center", anchor_y="center",
+                         font_name="Arial", bold=True)
+
+    def on_update(self, delta_time):
+        for flake in self.snowflakes:
+            flake['y'] -= flake['speed']
+            if flake['y'] < 0:
+                flake['y'] = SCREEN_HEIGHT
+                flake['x'] = random.randint(0, SCREEN_WIDTH)
+
+    def on_key_press(self, key, modifiers):
+        if key == arcade.key.ESCAPE:
+            self.window.show_view(MainMenu())
+
+
+class LevelSelectView(arcade.View):
+    def __init__(self):
+        super().__init__()
+        self.selected = 1
+        self.snowflakes = []
+
+        # Загружаем звук для выбора уровня
+        self.level_select_sound = None
+        self.level_confirm_sound = None
+        try:
+            self.level_select_sound = arcade.Sound(":resources:sounds/upgrade1.wav")
+            self.level_confirm_sound = arcade.Sound(":resources:sounds/upgrade4.wav")
+        except:
+            try:
+                self.level_select_sound = self.create_beep_sound(600, 50)
+                self.level_confirm_sound = self.create_beep_sound(800, 100)
+            except:
+                pass
+
+        for _ in range(50):
+            self.snowflakes.append({
+                'x': random.randint(0, SCREEN_WIDTH),
+                'y': random.randint(0, SCREEN_HEIGHT),
+                'size': random.randint(1, 3),
+                'speed': random.uniform(0.2, 0.6)
+            })
+
+    def create_beep_sound(self, frequency=440, duration_ms=100):
+        """Создает простой звуковой сигнал"""
+        try:
+            import numpy as np
+
+            sample_rate = 44100
+            duration = duration_ms / 1000.0
+            num_samples = int(sample_rate * duration)
+
+            t = np.linspace(0, duration, num_samples, False)
+            wave = np.sin(frequency * 2 * np.pi * t)
+
+            envelope = np.ones_like(wave)
+            attack_len = int(0.05 * sample_rate)
+            release_len = int(0.1 * sample_rate)
+
+            for i in range(attack_len):
+                envelope[i] = i / attack_len
+
+            for i in range(release_len):
+                envelope[-i - 1] = i / release_len
+
+            wave = wave * envelope
+            wave = (wave * 32767).astype(np.int16).tobytes()
+
+            sound = arcade.Sound(wave, streaming=False)
+            return sound
+        except:
+            return None
+
+    def on_draw(self):
+        self.clear()
+
+        arcade.draw_lrbt_rectangle_filled(0, SCREEN_WIDTH, 0, SCREEN_HEIGHT, arcade.color.DARK_BLUE)
+
+        for flake in self.snowflakes:
+            arcade.draw_circle_filled(flake['x'], flake['y'], flake['size'], arcade.color.WHITE)
+
+        arcade.draw_text("ВЫБОР УРОВНЯ", SCREEN_WIDTH // 2,
+                         SCREEN_HEIGHT * 0.85, arcade.color.GOLD, 42, anchor_x="center",
+                         font_name="Arial", bold=True)
+
+        for i in range(1, 6):
+            is_unlocked = game_progress['unlocked_levels'].get(i, False)
+            is_selected = i == self.selected
+            is_current = i == game_progress['current_level']
+
+            # Цвета для уровней
+            if is_unlocked:
+                level_colors = [
+                    arcade.color.GREEN,
+                    arcade.color.BLUE,
+                    arcade.color.PURPLE,
+                    arcade.color.ORANGE,
+                    arcade.color.RED
+                ]
+                border_color = arcade.color.YELLOW if is_selected else arcade.color.WHITE
+                text_color = arcade.color.BLACK if is_selected else arcade.color.WHITE
+                level_color = level_colors[i - 1]
+            else:
+                # Заблокированные уровни - серые
+                border_color = arcade.color.DARK_GRAY if is_selected else arcade.color.GRAY
+                text_color = arcade.color.DARK_GRAY
+                level_color = arcade.color.DARK_GRAY
+
+            level_names = [
+                "Сброс коробки",
+                "Лабиринт",
+                "Паркур",
+                "Вертикаль",
+                "Финальный"
+            ]
+
+            level_x = SCREEN_WIDTH // 2 + (i - 3) * 150
+            level_y = SCREEN_HEIGHT // 2
+
+            # Рисуем рамку
+            arcade.draw_lbwh_rectangle_filled(level_x - 60, level_y - 60, 120, 120, border_color)
+            # Рисуем фон уровня
+            arcade.draw_lbwh_rectangle_filled(level_x - 60, level_y - 60, 120, 120, level_color)
+
+            # Номер уровня
+            arcade.draw_text(str(i), level_x, level_y,
+                             text_color, 48, anchor_x="center", anchor_y="center",
+                             font_name="Arial", bold=True)
+
+            # Текущий уровень отмечаем звездочкой
+            if is_current and is_unlocked:
+                arcade.draw_text("★", level_x, level_y + 30,
+                                 arcade.color.YELLOW, 30, anchor_x="center", anchor_y="center",
+                                 font_name="Arial", bold=True)
+
+            # Замок для заблокированных уровней
+            if not is_unlocked:
+                arcade.draw_text("🔒", level_x, level_y + 20,
+                                 arcade.color.WHITE, 30, anchor_x="center", anchor_y="center",
+                                 font_name="Arial")
+
+            text_bg_y = level_y - 80
+            arcade.draw_text(level_names[i - 1], level_x, text_bg_y,
+                             arcade.color.WHITE, 14, anchor_x="center", anchor_y="center",
+                             font_name="Arial", bold=True)
+
+            # Статус разблокировки
+            if not is_unlocked:
+                arcade.draw_text("Заблокирован", level_x, text_bg_y - 25,
+                                 arcade.color.LIGHT_GRAY, 12, anchor_x="center", anchor_y="center",
+                                 font_name="Arial")
+            elif is_current:
+                arcade.draw_text("Текущий", level_x, text_bg_y - 25,
+                                 arcade.color.YELLOW, 12, anchor_x="center", anchor_y="center",
+                                 font_name="Arial", bold=True)
+
+        arcade.draw_text("A/D-выбор, ENTER-играть, ESC-назад", SCREEN_WIDTH // 2,
+                         100, arcade.color.LIGHT_GRAY, 20, anchor_x="center", anchor_y="center",
+                         font_name="Arial", bold=True)
+
+        # Статистика прогресса
+        unlocked_count = sum(1 for level, unlocked in game_progress['unlocked_levels'].items() if unlocked)
+        arcade.draw_text(f"Прогресс: {unlocked_count}/5 уровней разблокировано", SCREEN_WIDTH // 2,
+                         60, arcade.color.LIGHT_GREEN, 18, anchor_x="center", anchor_y="center",
+                         font_name="Arial", bold=True)
+
+    def on_update(self, delta_time):
+        for flake in self.snowflakes:
+            flake['y'] -= flake['speed']
+            if flake['y'] < 0:
+                flake['y'] = SCREEN_HEIGHT
+                flake['x'] = random.randint(0, SCREEN_WIDTH)
+
+    def on_key_press(self, key, modifiers):
+        old_selected = self.selected
+
+        if key == arcade.key.A:
+            self.selected = max(1, self.selected - 1)
+            # Звук выбора уровня
+            if self.selected != old_selected and self.level_select_sound:
+                arcade.play_sound(self.level_select_sound, volume=1.0)
+        elif key == arcade.key.D:
+            self.selected = min(5, self.selected + 1)
+            # Звук выбора уровня
+            if self.selected != old_selected and self.level_select_sound:
+                arcade.play_sound(self.level_select_sound, volume=1.0)
+        elif key == arcade.key.ENTER or key == arcade.key.SPACE:
+            # Проверяем, разблокирован ли уровень
+            if game_progress['unlocked_levels'].get(self.selected, False):
+                # Звук подтверждения
+                if self.level_confirm_sound:
+                    arcade.play_sound(self.level_confirm_sound, volume=1.0)
+                # Обновляем текущий уровень
+                game_progress['current_level'] = self.selected
+                save_game_progress(game_progress)
+                self.window.show_view(GameView(self.selected))
+            else:
+                # Звук ошибки (более низкий тон)
+                if self.level_select_sound:
+                    arcade.play_sound(self.level_select_sound, volume=1.0)
+        elif key == arcade.key.ESCAPE:
+            self.window.show_view(MainMenu())
+
+
+def main():
+    window = arcade.Window(SCREEN_WIDTH, SCREEN_HEIGHT, SCREEN_TITLE)
+    window.show_view(MainMenu())
+    arcade.run()
+
+
+if __name__ == "__main__":
+    main()
