@@ -19,16 +19,13 @@ SAVE_FILE = "game_progress.csv"
 
 
 def load_game_progress():
-    """Загружает прогресс игры из CSV файла"""
     progress = {
         'unlocked_levels': {1: True, 2: False, 3: False, 4: False, 5: False},
         'current_level': 1,
         'total_played_time': 0,
         'last_save': datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
         'total_deaths': 0,
-        'levels_completed': 0,
-        'coins_collected': 0,
-        'invincibility_uses': 0
+        'levels_completed': 0
     }
 
     try:
@@ -54,8 +51,6 @@ def load_game_progress():
                     progress['last_save'] = row.get('last_save', datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
                     progress['total_deaths'] = int(row.get('total_deaths', 0))
                     progress['levels_completed'] = int(row.get('levels_completed', 0))
-                    progress['coins_collected'] = int(row.get('coins_collected', 0))
-                    progress['invincibility_uses'] = int(row.get('invincibility_uses', 0))
 
                     # Если все уровни пройдены, сбрасываем прогресс
                     if progress['levels_completed'] >= 5:
@@ -69,7 +64,6 @@ def load_game_progress():
 
 
 def save_game_progress(progress):
-    """Сохраняет прогресс игры в CSV файл"""
     try:
         # Проверяем, не пройдены ли все уровни
         if progress['levels_completed'] >= 5:
@@ -86,9 +80,7 @@ def save_game_progress(progress):
             'total_played_time': progress['total_played_time'],
             'last_save': datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
             'total_deaths': progress['total_deaths'],
-            'levels_completed': progress['levels_completed'],
-            'coins_collected': progress['coins_collected'],
-            'invincibility_uses': progress['invincibility_uses']
+            'levels_completed': progress['levels_completed']
         }
 
         # Записываем в CSV
@@ -104,7 +96,6 @@ def save_game_progress(progress):
 
 
 def reset_game_progress():
-    """Сбрасывает прогресс игры до начального состояния"""
     print("Сброс прогресса игры...")
     progress = {
         'unlocked_levels': {1: True, 2: False, 3: False, 4: False, 5: False},
@@ -112,9 +103,7 @@ def reset_game_progress():
         'total_played_time': 0,
         'last_save': datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
         'total_deaths': 0,
-        'levels_completed': 0,
-        'coins_collected': 0,
-        'invincibility_uses': 0
+        'levels_completed': 0
     }
 
     # Сохраняем сброшенный прогресс
@@ -159,7 +148,6 @@ def create_color_textures():
         'cloud': arcade.color.WHITE,
         'rock': arcade.color.DARK_GRAY,
         'lava': arcade.color.RED_ORANGE,
-        'coin': arcade.color.GOLD,
     }
 
     for name, color in texture_colors.items():
@@ -199,13 +187,7 @@ class Player(arcade.Sprite):
         self.carrying_box = None
         self.carrying_offset_y = 40
 
-        # Монеты и неуязвимость
-        self.coins = 0
-        self.powerup_invincible = False
-        self.powerup_timer = 0
-        self.powerup_duration = 600  # 10 секунд при 60 FPS
-
-    def update(self, delta_time=1 / 60):
+    def update(self):
         self.velocity_y -= GRAVITY
         if self.velocity_y < -20:
             self.velocity_y = -20
@@ -232,19 +214,6 @@ class Player(arcade.Sprite):
         if self.carrying_box:
             self.color = arcade.color.CYAN
 
-        # Эффект неуязвимости
-        if self.powerup_invincible:
-            self.powerup_timer -= 1
-            if self.powerup_timer <= 0:
-                self.powerup_invincible = False
-                self.color = TEXTURES.get('player_idle', arcade.color.BLUE)
-            else:
-                # Мигание при неуязвимости
-                if self.powerup_timer % 10 < 5:
-                    self.color = arcade.color.GOLD
-                else:
-                    self.color = arcade.color.YELLOW
-
         if self.invincible_timer > 0:
             self.invincible_timer -= 1
             self.alpha = 150 if random.random() > 0.5 else 255
@@ -266,57 +235,12 @@ class Player(arcade.Sprite):
         return False
 
     def take_damage(self):
-        if self.invincible_timer <= 0 and not self.powerup_invincible:
+        if self.invincible_timer <= 0:
             self.health -= 1
             self.invincible_timer = 60
             self.color = arcade.color.RED
             return True
         return False
-
-    def activate_invincibility(self):
-        """Активирует неуязвимость за 3 монеты"""
-        if self.coins >= 3:
-            self.coins -= 3
-            self.powerup_invincible = True
-            self.powerup_timer = self.powerup_duration
-            game_progress['invincibility_uses'] += 1
-            return True
-        return False
-
-    def add_coin(self):
-        """Добавляет монету"""
-        self.coins += 1
-        game_progress['coins_collected'] += 1
-        return True
-
-
-class Coin(arcade.Sprite):
-    def __init__(self, x, y):
-        # Создаем цветную монету
-        super().__init__()
-
-        # Устанавливаем стандартные размеры
-        self.width = 30
-        self.height = 30
-        self.center_x = x
-        self.center_y = y
-
-        coin_color = TEXTURES.get('coin', arcade.color.GOLD)
-        self.color = coin_color
-
-        self.animation_timer = 0
-        self.collected = False
-
-    def update(self, delta_time=1 / 60):
-        # Анимация монеты (вращение)
-        self.animation_timer += 1
-        if self.animation_timer >= 60:
-            self.animation_timer = 0
-
-        # Изменяем размер для эффекта пульсации
-        pulse = math.sin(self.animation_timer * 0.1) * 2
-        self.width = 30 + pulse
-        self.height = 30 + pulse
 
 
 class Box(arcade.Sprite):
@@ -335,9 +259,6 @@ class Box(arcade.Sprite):
 
         self.can_be_pushed = True
         self.velocity_y = 0
-
-    def update(self, delta_time=1 / 60):
-        pass
 
 
 class Button(arcade.Sprite):
@@ -364,9 +285,6 @@ class Button(arcade.Sprite):
             self.pressed = pressed
             self.color = self.pressed_color if pressed else self.normal_color
 
-    def update(self, delta_time=1 / 60):
-        pass
-
 
 class Door(arcade.Sprite):
     def __init__(self, x, y):
@@ -391,9 +309,6 @@ class Door(arcade.Sprite):
             self.opened = opened
             self.color = self.opened_color if opened else self.closed_color
 
-    def update(self, delta_time=1 / 60):
-        pass
-
 
 class Enemy(arcade.Sprite):
     def __init__(self, x, y, patrol_range=150):
@@ -416,7 +331,7 @@ class Enemy(arcade.Sprite):
         self.normal_color = enemy_color
         self.alt_color = TEXTURES.get('enemy_move', arcade.color.DARK_VIOLET)
 
-    def update(self, delta_time=1 / 60):
+    def update(self):
         self.center_x += self.speed * self.direction
 
         # Анимация врага (мигание)
@@ -449,9 +364,6 @@ class Spikes(arcade.Sprite):
         self.active = True
         self.damage_timer = 0
 
-    def update(self, delta_time=1 / 60):
-        pass
-
 
 class Platform(arcade.Sprite):
     def __init__(self, x, y, platform_type='grass_mid'):
@@ -477,9 +389,6 @@ class Platform(arcade.Sprite):
         self.center_x = x + TILE_SIZE / 2
         self.center_y = y + TILE_SIZE / 2
         self.color = color
-
-    def update(self, delta_time=1 / 60):
-        pass
 
 
 class Decoration(arcade.Sprite):
@@ -516,9 +425,6 @@ class Decoration(arcade.Sprite):
 
         self.decoration_type = decoration_type
 
-    def update(self, delta_time=1 / 60):
-        pass
-
 
 class Heart(arcade.Sprite):
     def __init__(self, x, y, active=True):
@@ -538,9 +444,6 @@ class Heart(arcade.Sprite):
             heart_color = TEXTURES.get('heart_grey', (100, 100, 100))
             self.color = heart_color
 
-    def update(self, delta_time=1 / 60):
-        pass
-
 
 class GameView(arcade.View):
     def __init__(self, level=1):
@@ -559,7 +462,6 @@ class GameView(arcade.View):
         self.spike_list = None
         self.heart_list = None
         self.decoration_list = None
-        self.coin_list = None  # Новый список для монет
 
         self.player = None
         self.left_pressed = self.right_pressed = self.up_pressed = False
@@ -572,10 +474,6 @@ class GameView(arcade.View):
 
         # Таймер для отображения сообщения об открытой двери
         self.door_opened_message_timer = 0
-
-        # Таймер для сообщения о монете
-        self.coin_collected_message_timer = 0
-        self.coin_collected_message = ""
 
         # Флаги для проигрывания звуков
         self.game_over_sound_played = False
@@ -610,12 +508,6 @@ class GameView(arcade.View):
             # Звук открытия двери
             self.door_sound = arcade.Sound(":resources:sounds/secret4.wav")
 
-            # Звук сбора монеты
-            self.coin_sound = arcade.Sound(":resources:sounds/coin1.wav")
-
-            # Звук активации неуязвимости
-            self.powerup_sound = arcade.Sound(":resources:sounds/upgrade5.wav")
-
         except Exception as e:
             print(f"Не удалось загрузить стандартные звуки: {e}")
 
@@ -635,10 +527,6 @@ class GameView(arcade.View):
                 self.button_sound = self.create_beep_sound(500, 300)
                 # Звук открытия двери
                 self.door_sound = self.create_beep_sound(700, 400)
-                # Звук сбора монеты
-                self.coin_sound = self.create_beep_sound(1000, 200)
-                # Звук активации неуязвимости
-                self.powerup_sound = self.create_beep_sound(1200, 400)
             except:
                 self.game_over_sound = None
                 self.level_complete_sound = None
@@ -647,8 +535,6 @@ class GameView(arcade.View):
                 self.box_sound = None
                 self.button_sound = None
                 self.door_sound = None
-                self.coin_sound = None
-                self.powerup_sound = None
 
     def create_beep_sound(self, frequency=440, duration_ms=100):
         # Создаем короткий звуковой сигнал
@@ -694,7 +580,6 @@ class GameView(arcade.View):
         self.spike_list = arcade.SpriteList()
         self.heart_list = arcade.SpriteList()
         self.decoration_list = arcade.SpriteList()
-        self.coin_list = arcade.SpriteList()  # Новый список для монет
 
         # Создаем игрока
         self.player = Player()
@@ -769,10 +654,6 @@ class GameView(arcade.View):
             for x in [300, 700, 1100]:
                 tree = Decoration(x, 64, 'tree')
                 self.decoration_list.append(tree)
-
-            # Монета на высокой платформе
-            coin = Coin(470, 314)
-            self.coin_list.append(coin)
 
         # УРОВЕНЬ 2: Лабиринт с движущимися врагами и шипами
         elif self.level == 2:
@@ -856,10 +737,6 @@ class GameView(arcade.View):
                 platform = Platform(pos[0], pos[1], 'brick')
                 self.platform_list.append(platform)
 
-            # Монета в центре лабиринта
-            coin = Coin(950, 250)
-            self.coin_list.append(coin)
-
         # УРОВЕНЬ 3: Паркур с прыжками по платформам
         elif self.level == 3:
             self.player.center_x, self.player.center_y = 100, 150
@@ -895,10 +772,6 @@ class GameView(arcade.View):
                 enemy.speed = 2.0
                 self.enemy_list.append(enemy)
 
-            # Монета на сложной платформе
-            coin = Coin(1000, 390)
-            self.coin_list.append(coin)
-
         # УРОВЕНЬ 4: Вертикальный уровень
         elif self.level == 4:
             self.player.center_x, self.player.center_y = 100, 150
@@ -933,10 +806,6 @@ class GameView(arcade.View):
             self.door_list.append(door)
             button.linked_door = door
 
-            # Монета на самой высокой перемычке
-            coin = Coin(1000, 414)
-            self.coin_list.append(coin)
-
         # УРОВЕНЬ 5: Финальный
         elif self.level == 5:
             self.player.center_x, self.player.center_y = 100, 150
@@ -963,10 +832,6 @@ class GameView(arcade.View):
             door = Door(1400, 150)
             self.door_list.append(door)
             button.linked_door = door
-
-            # Монета на вершине пирамиды
-            coin = Coin(600, 100 + pyramid_height * 64 + 20)
-            self.coin_list.append(coin)
 
         # Обновляем сердца
         self.update_hearts()
@@ -1026,7 +891,6 @@ class GameView(arcade.View):
             self.door_list.draw()
             self.enemy_list.draw()
             self.spike_list.draw()
-            self.coin_list.draw()  # Рисуем монеты
             self.player_list.draw()
 
             # Активируем GUI камеру
@@ -1046,15 +910,6 @@ class GameView(arcade.View):
                              SCREEN_HEIGHT - 100,
                              arcade.color.BLACK, 14, bold=True)
 
-            # Монеты
-            arcade.draw_text(f"Монеты: {self.player.coins}", SCREEN_WIDTH - 200, SCREEN_HEIGHT - 130,
-                             arcade.color.GOLD, 14, bold=True)
-
-            # Статистика монет в прогрессе
-            arcade.draw_text(f"Всего монет: {game_progress['coins_collected']}", SCREEN_WIDTH - 200,
-                             SCREEN_HEIGHT - 160,
-                             arcade.color.GOLD, 12, bold=True)
-
             # Подсказки
             if self.player.carrying_box:
                 arcade.draw_text("E - бросить коробку", 50, SCREEN_HEIGHT - 100,
@@ -1062,20 +917,6 @@ class GameView(arcade.View):
             else:
                 arcade.draw_text("E - взять коробку (когда рядом)", 50, SCREEN_HEIGHT - 100,
                                  arcade.color.BLACK, 16, bold=True)
-
-            # Подсказка про монеты и неуязвимость
-            if self.player.coins >= 3:
-                arcade.draw_text("Q - Активировать неуязвимость (3 монеты)", 50, SCREEN_HEIGHT - 130,
-                                 arcade.color.GOLD, 16, bold=True)
-            else:
-                arcade.draw_text(f"Соберите {3 - self.player.coins} монет для неуязвимости", 50, SCREEN_HEIGHT - 130,
-                                 arcade.color.GOLD, 14, bold=True)
-
-            # Таймер неуязвимости
-            if self.player.powerup_invincible:
-                seconds_left = max(0, self.player.powerup_timer // 60)
-                arcade.draw_text(f"Неуязвимость: {seconds_left} сек", SCREEN_WIDTH // 2, SCREEN_HEIGHT - 40,
-                                 arcade.color.GOLD, 20, anchor_x="center", bold=True)
 
             # Подсказка уровня
             hints = [
@@ -1087,12 +928,12 @@ class GameView(arcade.View):
             ]
             hint = hints[min(self.level - 1, 4)]
 
-            arcade.draw_text(hint, 50, SCREEN_HEIGHT - 160,
+            arcade.draw_text(hint, 50, SCREEN_HEIGHT - 130,
                              arcade.color.BLACK, 14, bold=True)
 
             # Подсказка управления
-            arcade.draw_text("Управление: A/D-движение, SPACE-прыжок, E-взять/бросить, Q-неуязвимость",
-                             50, SCREEN_HEIGHT - 190,
+            arcade.draw_text("Управление: A/D-движение, SPACE-прыжок, E-взять/бросить",
+                             50, SCREEN_HEIGHT - 160,
                              arcade.color.BLACK, 12, bold=True)
 
             # Проверяем, открыта ли какая-либо дверь
@@ -1117,11 +958,6 @@ class GameView(arcade.View):
                 # Рисуем основной зеленый текст поверх обводки
                 arcade.draw_text("ДВЕРЬ ОТКРЫТА", SCREEN_WIDTH // 2, SCREEN_HEIGHT - 100,
                                  arcade.color.GREEN, 24, anchor_x="center", bold=True)
-
-            # Сообщение о собранной монете
-            if self.coin_collected_message_timer > 0:
-                arcade.draw_text(self.coin_collected_message, SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2,
-                                 arcade.color.GOLD, 30, anchor_x="center", anchor_y="center", bold=True)
 
         # Рисуем экран смерти или победы
         if self.game_over:
@@ -1173,14 +1009,6 @@ class GameView(arcade.View):
         if self.door_opened_message_timer > 0:
             self.door_opened_message_timer -= 1
 
-        # Обновляем таймер сообщения о монете
-        if self.coin_collected_message_timer > 0:
-            self.coin_collected_message_timer -= 1
-
-        # Обновляем монеты
-        self.coin_list.update(delta_time)
-        self.enemy_list.update(delta_time)
-
         # Движение игрока
         self.player.change_x = 0
         if self.left_pressed and not self.right_pressed:
@@ -1188,7 +1016,7 @@ class GameView(arcade.View):
         elif self.right_pressed and not self.left_pressed:
             self.player.change_x = self.player.speed
 
-        self.player.update(delta_time)
+        self.player.update()
 
         # Проверка столкновений с платформами для игрока
         self.player.on_ground = self.player.on_wall = False
@@ -1312,6 +1140,7 @@ class GameView(arcade.View):
 
         # Враги
         for enemy in self.enemy_list:
+            enemy.update()
             if arcade.check_for_collision(self.player, enemy) and self.player.take_damage():
                 self.update_hearts()
                 # Проигрываем звук получения урона
@@ -1336,20 +1165,6 @@ class GameView(arcade.View):
                     # Проигрываем звук получения урона
                     if self.damage_sound:
                         arcade.play_sound(self.damage_sound, volume=1.0)
-
-        # Монеты
-        coins_hit = arcade.check_for_collision_with_list(self.player, self.coin_list)
-        for coin in coins_hit:
-            if not coin.collected:
-                coin.collected = True
-                self.player.add_coin()
-                coin.remove_from_sprite_lists()
-                # Проигрываем звук сбора монеты
-                if self.coin_sound:
-                    arcade.play_sound(self.coin_sound, volume=1.0)
-                # Показываем сообщение
-                self.coin_collected_message = "МОНЕТА СОБРАНА!"
-                self.coin_collected_message_timer = 60
 
         # Двери
         for door in self.door_list:
@@ -1460,15 +1275,6 @@ class GameView(arcade.View):
                     # Проигрываем звук взятия коробки
                     if self.box_sound:
                         arcade.play_sound(self.box_sound, volume=1.0)
-        elif key == arcade.key.Q:
-            # Активация неуязвимости за 3 монеты
-            if self.player.activate_invincibility():
-                # Проигрываем звук активации
-                if self.powerup_sound:
-                    arcade.play_sound(self.powerup_sound, volume=1.0)
-                # Показываем сообщение
-                self.coin_collected_message = "НЕУЯЗВИМОСТЬ АКТИВИРОВАНА!"
-                self.coin_collected_message_timer = 60
         elif key == arcade.key.R:
             # Сохраняем прогресс перед рестартом
             game_progress['total_played_time'] += self.game_time
@@ -1576,14 +1382,6 @@ class MainMenu(arcade.View):
                          arcade.color.LIGHT_BLUE, 18, anchor_x="center", anchor_y="center",
                          font_name="Arial", bold=True)
 
-        # Показываем статистику монет
-        arcade.draw_text(f"Собрано монет: {game_progress['coins_collected']}", title_x, title_y - 110,
-                         arcade.color.GOLD, 18, anchor_x="center", anchor_y="center",
-                         font_name="Arial", bold=True)
-        arcade.draw_text(f"Использований неуязвимости: {game_progress['invincibility_uses']}", title_x, title_y - 140,
-                         arcade.color.LIGHT_YELLOW, 16, anchor_x="center", anchor_y="center",
-                         font_name="Arial", bold=True)
-
         menu_start_y = SCREEN_HEIGHT * 0.45
 
         for i, option in enumerate(self.options):
@@ -1689,8 +1487,6 @@ class StatisticsView(arcade.View):
              f"{sum(1 for level, unlocked in game_progress['unlocked_levels'].items() if unlocked)}/5"),
             ("Всего пройдено уровней:", f"{game_progress['levels_completed']}"),
             ("Всего смертей:", f"{game_progress['total_deaths']}"),
-            ("Собрано монет:", f"{game_progress['coins_collected']}"),
-            ("Использований неуязвимости:", f"{game_progress['invincibility_uses']}"),
             ("Общее время игры:", f"{game_progress['total_played_time']:.1f} сек"),
             ("Последнее сохранение:", game_progress['last_save']),
         ]
@@ -1770,7 +1566,6 @@ class LevelSelectView(arcade.View):
             })
 
     def create_beep_sound(self, frequency=440, duration_ms=100):
-        """Создает простой звуковой сигнал"""
         try:
             import numpy as np
 
@@ -1890,11 +1685,6 @@ class LevelSelectView(arcade.View):
         unlocked_count = sum(1 for level, unlocked in game_progress['unlocked_levels'].items() if unlocked)
         arcade.draw_text(f"Прогресс: {unlocked_count}/5 уровней разблокировано", SCREEN_WIDTH // 2,
                          60, arcade.color.LIGHT_GREEN, 18, anchor_x="center", anchor_y="center",
-                         font_name="Arial", bold=True)
-
-        # Статистика монет
-        arcade.draw_text(f"Собрано монет: {game_progress['coins_collected']}", SCREEN_WIDTH // 2,
-                         30, arcade.color.GOLD, 16, anchor_x="center", anchor_y="center",
                          font_name="Arial", bold=True)
 
     def on_update(self, delta_time):
