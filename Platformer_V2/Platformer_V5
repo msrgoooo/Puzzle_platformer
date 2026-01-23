@@ -19,7 +19,6 @@ SAVE_FILE = "game_progress.csv"
 
 
 def load_game_progress():
-    """Загружает прогресс игры из CSV файла"""
     progress = {
         'unlocked_levels': {1: True, 2: False, 3: False, 4: False, 5: False},
         'current_level': 1,
@@ -65,7 +64,6 @@ def load_game_progress():
 
 
 def save_game_progress(progress):
-    """Сохраняет прогресс игры в CSV файл"""
     try:
         # Проверяем, не пройдены ли все уровни
         if progress['levels_completed'] >= 5:
@@ -98,7 +96,6 @@ def save_game_progress(progress):
 
 
 def reset_game_progress():
-    """Сбрасывает прогресс игры до начального состояния"""
     print("Сброс прогресса игры...")
     progress = {
         'unlocked_levels': {1: True, 2: False, 3: False, 4: False, 5: False},
@@ -1569,7 +1566,6 @@ class LevelSelectView(arcade.View):
             })
 
     def create_beep_sound(self, frequency=440, duration_ms=100):
-        """Создает простой звуковой сигнал"""
         try:
             import numpy as np
 
