@@ -24,7 +24,6 @@ TEXTURES = {
     'button': None,
     'door': None,
     'enemy': None,
-    'spike': None,
     'heart_active': None,
     'heart_inactive': None,
     'platforms': {}
@@ -38,7 +37,6 @@ def load_all_textures():
     TEXTURES['button'] = arcade.load_texture(":resources:images/tiles/stone.png")
     TEXTURES['door'] = arcade.load_texture(":resources:images/tiles/stoneCenter.png")
     TEXTURES['enemy'] = arcade.load_texture(":resources:images/enemies/slimeBlock.png")
-    TEXTURES['spike'] = arcade.load_texture(":resources:images/tiles/stone.png")
     TEXTURES['heart_active'] = arcade.load_texture(":resources:images/items/coinGold.png")
     TEXTURES['heart_inactive'] = TEXTURES['heart_active']
 
@@ -267,18 +265,6 @@ class Enemy(arcade.Sprite):
             self.direction *= -1
 
 
-class Spikes(arcade.Sprite):
-    def __init__(self, x, y, width=60, height=30):
-        super().__init__()
-        self.texture = TEXTURES['spike']
-        self.width = width
-        self.height = height
-        self.center_x = x + width / 2
-        self.center_y = y + height / 2
-        self.color = (255, 0, 0)
-        self.active = True
-        self.damage_timer = 0
-
 
 class Platform(arcade.Sprite):
     def __init__(self, x, y, platform_type='grass_mid'):
@@ -349,7 +335,6 @@ class GameView(arcade.View):
         self.button_list = arcade.SpriteList()
         self.door_list = arcade.SpriteList()
         self.enemy_list = arcade.SpriteList()
-        self.spike_list = arcade.SpriteList()
         self.heart_list = arcade.SpriteList()
         self.decoration_list = arcade.SpriteList()
         self.player = None
@@ -392,7 +377,6 @@ class GameView(arcade.View):
         self.button_list = arcade.SpriteList()
         self.door_list = arcade.SpriteList()
         self.enemy_list = arcade.SpriteList()
-        self.spike_list = arcade.SpriteList()
         self.heart_list = arcade.SpriteList()
         self.decoration_list = arcade.SpriteList()
 
@@ -460,7 +444,7 @@ class GameView(arcade.View):
                 tree = Decoration(x, 64, 'tree')
                 self.decoration_list.append(tree)
 
-        # УРОВЕНЬ 2: Лабиринт с движущимися врагами и шипами
+        # УРОВЕНЬ 2: Лабиринт с движущимися врагами
         elif self.level == 2:
             self.player.center_x, self.player.center_y = 100, 150
 
@@ -511,16 +495,6 @@ class GameView(arcade.View):
             for pos in enemy_positions:
                 enemy = Enemy(pos[0], pos[1], 100)
                 self.enemy_list.append(enemy)
-
-            # Шипы
-            spike_positions = [
-                (850, 100), (950, 100), (1050, 100),
-                (1450, 100), (1550, 100), (1650, 100)
-            ]
-
-            for pos in spike_positions:
-                spikes = Spikes(pos[0], pos[1], width=60, height=30)
-                self.spike_list.append(spikes)
 
             # Лава
             lava_positions = [(1150, 100), (1250, 100), (1350, 100)]
@@ -816,7 +790,6 @@ class GameView(arcade.View):
             self.button_list.draw()
             self.door_list.draw()
             self.enemy_list.draw()
-            self.spike_list.draw()
             self.player_list.draw()
 
             # Активируем GUI камеру
@@ -860,7 +833,7 @@ class GameView(arcade.View):
                              50, SCREEN_HEIGHT - 160,
                              arcade.color.BLACK, 12, bold=True)
 
-            # Проверяем, открыта ли какая-либо дверь
+            # Проверяем, открыта ли дверь
             door_opened = False
             for door in self.door_list:
                 if door.opened:
@@ -989,7 +962,6 @@ class GameView(arcade.View):
 
             old_y = box.center_y
             GRAVITY_BOX = GRAVITY * 5
-            box_on_ground = False
 
             box.center_y -= GRAVITY_BOX
 
